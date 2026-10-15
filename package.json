@@ -1,8 +1,8 @@
 {
   "name": "ip-visitor",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "服务器来访IP查看：解析 tcpdump 入站流量（TCP/UDP/ICMP），SQLite 存储，密码授权的 Web 实时/历史/统计查看",
-  "main": "src/server.js",
+  "main": "electron/main.js",
   "scripts": {
     "start": "node src/server.js",
     "start:replay": "node src/server.js --replay test/samples/sample.log --loop",
@@ -29,6 +29,48 @@
   },
   "devDependencies": {
     "@yao-pkg/pkg": "^6.23.0",
-    "electron": "^44.7.2"
-  }
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3",
+    "rcedit": "^5.0.1",
+    "sharp": "^0.35.5"
+  },
+  "build": {
+    "appId": "com.lailu.app",
+    "productName": "来路",
+    "directories": {
+      "output": "dist-release"
+    },
+    "files": [
+      "electron/**/*",
+      "node_modules/**/*",
+      "src/**/*",
+      "public/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "to": "lailu-core.exe",
+        "from": "dist/ip-visitor-core.exe"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "lailu-setup-${version}.exe"
+    },
+    "nsis": {
+      "shortcutName": "来路",
+      "oneClick": false,
+      "installerHeaderIcon": "",
+      "createStartMenuShortcut": true,
+      "uninstallerIcon": "",
+      "installerIcon": "",
+      "createDesktopShortcut": true,
+      "uninstallDisplayName": "来路",
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "productName": "来路"
 }

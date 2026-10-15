@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="bg3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#064e3b"/>
+      <stop offset="100%" stop-color="#0891b2"/>
+    </linearGradient>
+    <linearGradient id="lineG" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#34d399" stop-opacity="0.3"/>
+      <stop offset="50%" stop-color="#22d3ee" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#34d399" stop-opacity="0.3"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="8" y="8" width="184" height="184" rx="42" fill="url(#bg3)"/>
+
+  <!-- 脉冲波形（流量） -->
+  <g transform="translate(28 100)" fill="none" stroke="url(#lineG)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M0 30 L20 30 L28 10 L36 50 L44 -10 L52 40 L60 0 L72 30 L88 30 L96 5 L104 55 L112 -5 L120 35 L128 15 L144 30"/>
+  </g>
+
+  <!-- 中心峰值亮点 -->
+  <circle cx="100" cy="78" r="6" fill="#fbbf24">
+    <animate attributeName="r" values="4;8;4" dur="2s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="100" cy="78" r="12" fill="none" stroke="#fbbf24" stroke-width="1.5" opacity="0.5">
+    <animate attributeName="r" values="8;20;8" dur="2s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.6;0;0.6" dur="2s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- 横向时间轴 -->
+  <line x1="36" y1="132" x2="164" y2="132" stroke="rgba(255,255,255,0.15)" stroke-width="1" stroke-dasharray="3 4"/>
+
+  <!-- IP 节点小点 -->
+  <g fill="#ffffff" opacity="0.6">
+    <circle cx="50" cy="132" r="2"/>
+    <circle cx="80" cy="132" r="2"/>
+    <circle cx="120" cy="132" r="2"/>
+    <circle cx="150" cy="132" r="2"/>
+  </g>
+
+  <!-- 文字 -->
+  <g text-anchor="middle" font-family="-apple-system, 'Segoe UI', 'PingFang SC', sans-serif">
+    <text x="100" y="52" font-size="28" font-weight="800" fill="#ffffff" letter-spacing="3">来路</text>
+    <text x="100" y="170" font-size="10" fill="rgba(255,255,255,0.55)" letter-spacing="5">IP · VISITOR · MONITOR</text>
+  </g>
+</svg>

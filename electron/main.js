@@ -5,17 +5,20 @@ const { spawn } = require('child_process');
 const http = require('http');
 const net = require('net');
 const path = require('path');
+const fs = require('fs');
 
 let coreProc = null;
 let win = null;
 
-const dbg = [];
+let logFile = null;
+try {
+  logFile = path.join(app.getPath('userData'), 'app-debug.log');
+} catch (_e) { /* ignore */ }
+
 function debugLog(msg) {
-  dbg.push(`[${new Date().toISOString()}] ${msg}`);
-  try {
-    require('fs').writeFileSync(path.join(process.resourcesPath, 'app-debug.log'), dbg.join('\n') + '\n');
-  } catch (_e) { /* ignore */
-  }
+  const line = `[${new Date().toISOString()}] ${msg}`;
+  if (!logFile) return;
+  try { fs.appendFileSync(logFile, line + '\n'); } catch (_e) { /* 安装版无写权限时静默 */ }
 }
 
 function getFreePort() {
@@ -55,14 +58,16 @@ function killCore() {
 
 app.whenReady().then(async () => {
   try {
+    debugLog(`userData=${app.getPath('userData')}`);
     const port = await getFreePort();
-    const corePath = path.join(process.resourcesPath, 'ip-visitor-core.exe');
-    debugLog(`resourcesPath=${process.resourcesPath}`);
-    debugLog(`corePath=${corePath} exists=${require('fs').existsSync(corePath)}`);
-    coreProc = spawn(corePath, ['--port', String(port), '--host', '127.0.0.1'], {
+    const corePath = path.join(process.resourcesPath, 'lailu-core.exe');
+    debugLog(`corePath=${corePath} exists=${fs.existsSync(corePath)}`);
+    // 桌面版：只绑 127.0.0.1 且免登录（数据不出本机）；数据目录指向 %APPDATA%（安装版 Program Files 只读）
+    coreProc = spawn(corePath, ['--port', String(port), '--host', '127.0.0.1', '--no-auth'], {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
-      cwd: path.dirname(corePath),
+      cwd: app.getPath('userData'),
+      env: { ...process.env, LAILU_HOME: app.getPath('userData') },
     });
     coreProc.stdout.on('data', (d) => debugLog('core.stdout: ' + String(d).trim()));
     coreProc.stderr.on('data', (d) => debugLog('core.stderr: ' + String(d).trim()));
@@ -75,14 +80,14 @@ app.whenReady().then(async () => {
       width: 1280,
       height: 840,
       autoHideMenuBar: true,
-      title: 'ip-visitor 服务器来访IP监控',
+      title: '来路 · 服务器来访监控',
       webPreferences: { contextIsolation: true, nodeIntegration: false },
     });
     win.on('page-title-updated', (e) => e.preventDefault());
     await win.loadURL(`http://127.0.0.1:${port}/`);
     win.on('closed', killCore);
   } catch (e) {
-    dialog.showErrorBox('ip-visitor 启动失败', String((e && e.message) || e));
+    dialog.showErrorBox('来路 启动失败', String((e && e.message) || e));
     killCore();
     app.quit();
   }

@@ -26,6 +26,7 @@ function parseArgv(argv) {
     else if (a === '--host') out.host = argv[++i];
     else if (a === '--iface') out.iface = argv[++i];
     else if (a === '--force-no-q') out.forceNoQ = true;
+    else if (a === '--no-auth') out.noAuth = true;
     else if (a === '--help') out.help = true;
   }
   return out;
@@ -33,9 +34,10 @@ function parseArgv(argv) {
 
 const argv = parseArgv(process.argv);
 
-// 打包为单文件 exe（pkg）时，把工作目录切到 exe 所在目录，
-// 使 config.json / data/ 等相对路径始终落在 exe 旁边
-if (process.pkg) process.chdir(path.dirname(process.execPath));
+// 打包为单文件 exe（pkg）时，把工作目录切到数据目录：
+// 桌面版由 Electron 壳通过 LAILU_HOME 指定（%APPDATA%，安装版对 Program Files 无写权限），
+// 未设置时落在 exe 旁边（绿色版整目录拷贝即迁移）
+if (process.pkg) process.chdir(process.env.LAILU_HOME || path.dirname(process.execPath));
 if (argv.help) {
   console.log(`用法: node src/server.js [选项]
   --config <file>    配置文件路径（默认 config.json）
@@ -44,7 +46,8 @@ if (argv.help) {
   --port <n>         覆盖监听端口
   --host <addr>      覆盖监听地址（默认 0.0.0.0；桌面模式用 127.0.0.1 仅本机访问）
   --iface <name>     覆盖抓包网卡（默认 any）
-  --force-no-q       不使用 -Q in，改按本机 IP 过滤入站`);
+  --force-no-q       不使用 -Q in，改按本机 IP 过滤入站
+  --no-auth          免登录模式（桌面版内置；所有请求按管理员放行）`);
   process.exit(0);
 }
 
@@ -55,6 +58,7 @@ if (argv.iface) config.iface = argv.iface;
 if (argv.replay) config.replay = argv.replay;
 if (argv.loop) config.loop = true;
 if (argv.forceNoQ) config.forceNoQ = true;
+if (argv.noAuth) config.noAuth = true;
 
 const store = db.open(config.dbFile);
 console.log(`[db] SQLite 已打开: ${config.dbFile} (driver=${db.driverName})`);
@@ -120,7 +124,10 @@ app.use((req, res, next) => {
 app.use(express.json());
 
 // 公开端点
-app.get('/login.html', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'login.html')));
+app.get('/login.html', (_req, res) => {
+  if (config.noAuth) return res.redirect('/');
+  res.sendFile(path.join(__dirname, '..', 'public', 'login.html'));
+});
 app.post('/login', (req, res) => {
   const key = req.socket.remoteAddress || 'unknown';
   const t = throttle.check(key);
@@ -142,7 +149,9 @@ app.post('/login', (req, res) => {
 });
 
 // 认证守卫：未授权 401 / 页面跳登录；已授权挂 req.user
+// --no-auth（桌面版）：内核只绑 127.0.0.1，数据不出本机，直接按管理员放行
 app.use((req, res, next) => {
+  if (config.noAuth) { req.user = { user: 'admin', role: 'admin' }; return next(); }
   const sess = getSession(req);
   if (sess) { req.user = sess; return next(); }
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: '未授权' });
@@ -249,6 +258,7 @@ app.get('/api/session', async (req, res) => {
     capture: config.replay ? 'replay' : 'tcpdump',
     tcpdumpOk: await detectTcpdump(),
     user: req.user.user, role: req.user.role,
+    noAuth: !!config.noAuth,
     lastError: collector.lastError || '',
     listen: {
       hostname: os.hostname(),
@@ -393,6 +403,12 @@ app.get('/api/captures/analyze', (req, res) => {
   if (r.error) return res.status(400).json({ error: r.error });
   res.json(r);
 });
+app.get('/api/captures/stream', (req, res) => {
+  const r = captures.getStream(req.query.id, { a: req.query.a, ap: req.query.ap, b: req.query.b, bp: req.query.bp });
+  if (!r) return res.status(404).json({ error: '抓包文件不存在或尚未完成' });
+  if (r.error) return res.status(400).json({ error: r.error });
+  res.json(r);
+});
 app.get('/api/captures/download', (req, res) => {
   const file = captures.getFile(req.query.id);
   if (!file) return res.status(404).json({ error: '抓包文件不存在或尚未完成' });
@@ -437,7 +453,7 @@ setInterval(runCleanup, 3600 * 1000).unref();
 
 const listenHost = config.listenHost || '0.0.0.0';
 const server = app.listen(config.port, listenHost, () => {
-  console.log(`[web] http://${listenHost === '0.0.0.0' ? '<本机IP>' : listenHost}:${config.port}  (capture=${config.replay ? 'replay' : 'tcpdump'}, mode=${collector.mode})`);
+  console.log(`[web] http://${listenHost === '0.0.0.0' ? '<本机IP>' : listenHost}:${config.port}  (capture=${config.replay ? 'replay' : 'tcpdump'}, mode=${collector.mode}, auth=${config.noAuth ? '免登录' : '登录'})`);
 });
 server.on('error', (e) => {
   if (e.code === 'EADDRINUSE') {

@@ -3,34 +3,42 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>来访IP监控</title>
+<title>来路 · 服务器来访监控</title>
+<link rel="icon" type="image/svg+xml" href="/logo/icon.svg">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<header>
-  <div class="hd-left">
-    <span class="logo">来访IP监控</span>
-    <span class="mode" id="capture-mode"></span>
-  </div>
-  <div class="hd-right">
-    <span class="stat-inline">24h来访 <b id="hd-clients">-</b> IP / <b id="hd-packets">-</b> 包</span>
-    <span id="alert-dot" class="alert-dot hidden" title="有新告警">●</span>
-    <span id="whoami" class="whoami" title="点击进入账号页">-</span>
-    <button id="btn-logout" class="ghost">退出</button>
-  </div>
-</header>
+<div class="app-shell">
+  <aside class="app-sidebar">
+    <div class="brand">
+      <img src="/logo/icon.svg" alt="来路" class="brand-mark">
+      <span class="brand-copy"><strong>来路</strong><small>LaiLu · 服务器来访监控</small></span>
+    </div>
+    <nav class="side-nav">
+      <button class="tab active" data-tab="history">流量总览</button>
+      <button class="tab" data-tab="clients">客户端</button>
+      <button class="tab" data-tab="capture">抓包诊断</button>
+      <button class="tab" data-tab="users">账号管理</button>
+    </nav>
+    
+  </aside>
 
-<nav>
-  <button class="tab active" data-tab="live">实时</button>
-  <button class="tab" data-tab="history">历史记录</button>
-  <button class="tab" data-tab="clients">客户端统计</button>
-  <button class="tab" data-tab="capture">抓包诊断</button>
-  <button class="tab" data-tab="users">账号</button>
-</nav>
-
-<main>
-  <!-- 实时 + 概览 -->
-  <section id="tab-live" class="tabpane active">
+  <div class="app-main">
+    <header class="app-topbar">
+      <div>
+        <h1 id="page-title">流量总览</h1>
+        <span class="mode" id="capture-mode"></span>
+      </div>
+      <div class="hd-right">
+        <span class="stat-inline">24h来访 <b id="hd-clients">-</b> IP / <b id="hd-packets">-</b> 包</span>
+        <span id="alert-dot" class="alert-dot hidden" title="有新告警">●</span>
+        <span id="whoami" class="whoami" title="点击进入账号页">-</span>
+        <button id="btn-logout" class="ghost">退出</button>
+      </div>
+    </header>
+    <main>
+  <!-- 流量：概览 + 实时流 + 历史查询 -->
+  <section id="tab-history" class="tabpane active">
     <div id="listen-info" class="muted" style="margin-bottom:10px"></div>
     <div class="cards">
       <div class="card card-trend">
@@ -75,10 +83,8 @@
         <tbody id="live-tbody"></tbody>
       </table>
     </div>
-  </section>
 
-  <!-- 历史 -->
-  <section id="tab-history" class="tabpane">
+    <h3 style="margin:20px 0 8px">历史查询（点行按来源 IP 过滤）</h3>
     <form id="hist-form" class="toolbar filters">
       <label>IP <input name="ip" size="14" placeholder="来源IP"></label>
       <label>端口 <input name="port" size="5" placeholder="端口"></label>
@@ -252,6 +258,7 @@
         <div class="pd-head">
           <strong id="pd-title"></strong>
           <span class="grow"></span>
+          <button id="pd-stream" class="ghost" type="button" style="display:none">会话流</button>
           <button id="pd-copy" class="ghost" type="button">复制载荷</button>
         </div>
         <div id="pd-grid" class="pd-grid"></div>
@@ -259,6 +266,15 @@
         <pre id="pd-payload" class="hexbox" style="max-height:260px"></pre>
         <h3 style="margin:12px 0 6px">原始字节（hex，全量）</h3>
         <pre id="pkt-hex" class="hexbox"></pre>
+      </div>
+      <div id="stream-panel" class="hidden">
+        <div class="pd-head">
+          <strong id="stream-title"></strong>
+          <span class="grow"></span>
+          <button id="stream-close" class="ghost" type="button">关闭会话流</button>
+        </div>
+        <div id="stream-meta" class="muted" style="margin:6px 0"></div>
+        <pre id="stream-body" class="hexbox" style="max-height:420px;overflow:auto;white-space:pre-wrap"></pre>
       </div>
     </div>
   </section>
@@ -300,10 +316,20 @@
       </form>
     </div>
   </section>
-</main>
+    </main>
+  </div>
+</div>
 
 <script src="/services.js"></script>
 <script src="/app.js"></script>
+<script>
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('.tab');
+  if (!button) return;
+  const titles = { history: '流量总览', clients: '客户端统计', capture: '抓包诊断', users: '账号管理' };
+  document.getElementById('page-title').textContent = titles[button.dataset.tab] || '来访监控';
+});
+</script>
 <div id="toast" class="toast"></div>
 </body>
 </html>

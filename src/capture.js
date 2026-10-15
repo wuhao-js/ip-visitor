@@ -200,7 +200,7 @@ class CaptureManager {
     return cap.file;
   }
 
-  // 页内分析摘要：一次解析全量包，聚合协议/TCP标志/来源/端口/对话分布
+  // 页内分析摘要：一次解析全量包，聚合协议/TCP标志/来源/端口/对话分布，并生成自动诊断结论
   analyze(id) {
     const cap = this.captures.get(Number(id));
     if (!cap || cap.status !== 'done' || !cap.file) return null;
@@ -212,8 +212,9 @@ class CaptureManager {
     }
     const parsed = parsePcap(buf);
     if (parsed.error) return { error: parsed.error };
-    const proto = {}, flags = {}, srcs = {}, ports = {}, convs = {};
-    let bytes = 0, t0 = 0, t1 = 0, badPackets = 0;
+    const proto = {}, flags = {}, srcs = {}, ports = {}, convs = {}, convMeta = {}, perSrc = {};
+    const tcpPkts = [];
+    let bytes = 0, t0 = 0, t1 = 0, badPackets = 0, httpPkts = 0;
     for (const p of parsed.packets) {
       bytes += p.len;
       if (!t0 || p.tsMs < t0) t0 = p.tsMs;
@@ -222,25 +223,93 @@ class CaptureManager {
       if (d.error) { badPackets++; continue; }
       proto[d.proto] = (proto[d.proto] || 0) + 1;
       if (d.tcpFlags) for (const ch of d.tcpFlags) flags[ch] = (flags[ch] || 0) + 1;
-      if (d.src && d.src !== '?') srcs[d.src] = (srcs[d.src] || 0) + 1;
       if (d.dstPort) ports[d.dstPort] = (ports[d.dstPort] || 0) + 1;
       const conv = `${d.src}${d.srcPort ? ':' + d.srcPort : ''} → ${d.dst}${d.dstPort ? ':' + d.dstPort : ''}`;
       convs[conv] = (convs[conv] || 0) + 1;
+      convMeta[conv] = { a: d.src, ap: d.srcPort || 0, b: d.dst, bp: d.dstPort || 0 };
+      if (d.src && d.src !== '?') {
+        srcs[d.src] = (srcs[d.src] || 0) + 1;
+        const ps = perSrc[d.src] || (perSrc[d.src] = { ports: {}, synOnly: 0, dataPkts: 0 });
+        if (d.dstPort) ps.ports[`${d.proto}/${d.dstPort}`] = (ps.ports[`${d.proto}/${d.dstPort}`] || 0) + 1;
+        if (d.proto === 'tcp') {
+          if ((d.tcpFlags || '') === 'S') ps.synOnly++;
+          if (d.payload && d.payload.length) ps.dataPkts++;
+          tcpPkts.push({ tsMs: p.tsMs, src: d.src, dst: d.dst, sp: d.srcPort, dp: d.dstPort, flags: d.tcpFlags || '', seq: d.tcpSeq, ack: d.tcpAck });
+        }
+      }
+      if (d.payload && d.payload.length > 5) {
+        const head = d.payload.toString('latin1', 0, 5);
+        if (/^(GET |POST |PUT |HEAD |DELETE|OPTIO|PATCH|HTTP\/)/.test(head)) httpPkts++;
+      }
     }
-    const top = (obj, n) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, v]) => ({ k, c: v }));
+    const top = (obj, n) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, v]) => ({ k, c: v, ...(convMeta[k] || {}) }));
     const durationMs = t1 && t0 ? t1 - t0 : 0;
+    const secs = Math.max(1, Math.round(durationMs / 1000));
+    const total = parsed.packets.length;
+    const topSrcs = top(srcs, 5);
+    const topPorts = top(ports, 5);
+
+    // ---- 自动诊断结论：直接给"这堆包说明了什么" ----
+    const findings = [];
+    const offender = Object.entries(perSrc)
+      .map(([ip, s]) => ({ ip, ...s, portCount: Object.keys(s.ports).length }))
+      .filter(s => s.portCount >= 10 && s.dataPkts === 0)
+      .sort((a, b) => b.portCount - a.portCount)[0];
+    if (offender) {
+      findings.push({ level: 'warn', text: `疑似端口扫描：${offender.ip} 在 ${secs} 秒内试探了 ${offender.portCount} 个不同端口、无任何数据载荷（含 ${offender.synOnly} 个 SYN 探测），是典型扫描器行为` });
+    }
+    const rst = flags.R || 0;
+    if (total >= 10 && rst / total >= 0.2) {
+      findings.push({ level: 'warn', text: `RST 重置包占 ${Math.round(rst / total * 100)}%（${rst}/${total}）：目标端口多半没有服务监听，或连接被拒绝` });
+    }
+    if (topSrcs.length && total > 0 && topSrcs[0].c / total >= 0.6) {
+      // 只在该来源自己的主端口占比足够高时才提端口，避免把扫描者说成"主要访问某端口"
+      const s0 = perSrc[topSrcs[0].k];
+      const ent = s0 ? Object.entries(s0.ports).sort((a, b) => b[1] - a[1])[0] : null;
+      const dominant = ent && ent[1] / srcs[topSrcs[0].k] >= 0.6 ? `，主要目标是端口 ${ent[0].split('/')[1]}` : '';
+      findings.push({ level: 'info', text: `来源 ${topSrcs[0].k} 贡献了 ${Math.round(topSrcs[0].c / total * 100)}% 的报文${dominant}` });
+    }
+    const synAck = new Map();
+    for (const t of tcpPkts) {
+      if (t.flags === 'SA') {
+        const key = `${t.src}:${t.sp}>${t.dst}:${t.dp}`;
+        if (!synAck.has(key)) synAck.set(key, []);
+        synAck.get(key).push(t);
+      }
+    }
+    const rtts = [];
+    for (const t of tcpPkts) {
+      if (t.flags !== 'S' || rtts.length >= 50) continue;
+      const list = synAck.get(`${t.dst}:${t.dp}>${t.src}:${t.sp}`);
+      if (!list) continue;
+      const hit = list.find(x => x.tsMs >= t.tsMs && x.ack === ((t.seq + 1) >>> 0));
+      if (hit) rtts.push(hit.tsMs - t.tsMs);
+    }
+    if (rtts.length) {
+      const avg = Math.round(rtts.reduce((a, b) => a + b, 0) / rtts.length);
+      findings.push({ level: 'info', text: `TCP 握手（SYN→SYN/ACK）平均 ${avg} ms（采样 ${rtts.length} 次连接）${avg > 100 ? '，偏慢可关注网络路径' : '，连接建立正常'}` });
+    }
+    if (httpPkts) {
+      findings.push({ level: 'info', text: `检测到 ${httpPkts} 个 HTTP 报文，点对话行的「流」按钮可还原完整请求/响应内容` });
+    }
+    if (!findings.length) {
+      findings.push({ level: 'ok', text: `未检出端口扫描、大量 RST 等异常模式，${total} 包更像正常业务往返` });
+    }
+
     return {
-      total: parsed.packets.length,
+      total,
       bytes,
       durationMs,
-      pps: durationMs > 0 ? +(parsed.packets.length / (durationMs / 1000)).toFixed(1) : null,
+      pps: durationMs > 0 ? +(total / (durationMs / 1000)).toFixed(1) : null,
       truncated: parsed.truncated,
       badPackets,
       srcCount: Object.keys(srcs).length,
+      findings,
+      httpPkts,
       protoList: top(proto, 6),
       flagsList: top(flags, 6),
-      topSrcs: top(srcs, 5),
-      topPorts: top(ports, 5),
+      topSrcs,
+      topPorts,
       topConvs: top(convs, 5),
       filter: cap.filter,
       target: cap.target,
@@ -318,6 +387,49 @@ class CaptureManager {
       payloadKind: app ? app.kind : '',
       payloadText: app ? app.text : '',
       hex: hexDump(p.data, 0), // 全量 hex
+    };
+  }
+
+  // 会话流还原：按对话（双向）取报文，载荷按时间排列 —— 类 Wireshark Follow Stream
+  getStream(id, { a, ap, b, bp }) {
+    const cap = this.captures.get(Number(id));
+    if (!cap || cap.status !== 'done' || !cap.file) return null;
+    ap = Number(ap); bp = Number(bp);
+    if (!a || !b || !Number.isInteger(ap) || !Number.isInteger(bp)) return { error: '会话参数不完整' };
+    let buf;
+    try {
+      buf = fs.readFileSync(cap.file);
+    } catch (e) {
+      return { error: `读取抓包文件失败: ${e.message}` };
+    }
+    const parsed = parsePcap(buf);
+    if (parsed.error) return { error: parsed.error };
+    const segments = [];
+    let bytes = 0;
+    for (const p of parsed.packets) {
+      const d = decodePacket(parsed.linktype, p.data);
+      if (d.error || !d.src) continue;
+      const ab = d.src === a && (d.srcPort || 0) === ap && d.dst === b && (d.dstPort || 0) === bp;
+      const ba = d.src === b && (d.srcPort || 0) === bp && d.dst === a && (d.dstPort || 0) === ap;
+      if (!ab && !ba) continue;
+      bytes += p.len;
+      const app = decodeAppPayload(d.payload);
+      segments.push({
+        no: p.no, tsMs: p.tsMs, dir: ab ? 'ab' : 'ba', len: p.len,
+        payloadLen: d.payload ? d.payload.length : 0,
+        flags: d.tcpFlags || '', summary: d.summary || '',
+        kind: app ? app.kind : '',
+        text: app ? (app.text.length > 8192 ? app.text.slice(0, 8192) + '\n… 已截断' : app.text) : '',
+      });
+    }
+    if (!segments.length) return { error: '该对话在本次抓包中没有报文' };
+    const start = segments[0].tsMs;
+    return {
+      a, ap, b, bp,
+      segCount: segments.length,
+      bytes,
+      durationMs: segments[segments.length - 1].tsMs - start,
+      segments: segments.map(s => ({ ...s, dtMs: s.tsMs - start })),
     };
   }
 }

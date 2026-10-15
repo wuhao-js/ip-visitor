@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a8a"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <linearGradient id="sweep" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7dd3fc" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#7dd3fc" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 背景 -->
+  <rect x="8" y="8" width="184" height="184" rx="44" fill="url(#bg)"/>
+
+  <!-- 雷达同心圆 -->
+  <g transform="translate(100 110)" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5">
+    <circle r="50"/>
+    <circle r="36"/>
+    <circle r="22"/>
+    <line x1="-58" y1="0" x2="58" y2="0"/>
+    <line x1="0" y1="-58" x2="0" y2="58"/>
+  </g>
+
+  <!-- 扫描光束 -->
+  <g transform="translate(100 110)">
+    <path d="M0,0 L44,-42 A62,62 0 0,1 0,-62 Z" fill="url(#sweep)" opacity="0.8"/>
+    <line x1="0" y1="0" x2="0" y2="-62" stroke="#7dd3fc" stroke-width="1.5" opacity="0.9"/>
+  </g>
+
+  <!-- 来访节点 -->
+  <g transform="translate(100 110)">
+    <circle cx="-22" cy="-30" r="3.5" fill="#fbbf24"/>
+    <circle cx="32" cy="14" r="3" fill="#34d399"/>
+    <circle cx="-8" cy="40" r="2.5" fill="#f472b6"/>
+  </g>
+
+  <!-- 中心 -->
+  <circle cx="100" cy="110" r="4" fill="#ffffff"/>
+  <circle cx="100" cy="110" r="8" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="1"/>
+
+  <!-- 文字 -->
+  <g text-anchor="middle" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+    <text x="100" y="58" font-size="32" font-weight="800" fill="#ffffff" letter-spacing="3">来路</text>
+    <text x="100" y="78" font-size="10" fill="rgba(255,255,255,0.65)" letter-spacing="5">LAILU</text>
+  </g>
+</svg>

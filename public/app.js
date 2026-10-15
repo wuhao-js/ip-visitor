@@ -77,10 +77,9 @@ document.querySelectorAll('nav .tab').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('nav .tab').forEach(b => b.classList.toggle('active', b === btn));
     document.querySelectorAll('.tabpane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + btn.dataset.tab));
-    if (btn.dataset.tab === 'history') loadHistory();
+    if (btn.dataset.tab === 'history') { loadHistory(); refreshOverview(); }
     if (btn.dataset.tab === 'clients') loadClients();
     if (btn.dataset.tab === 'capture') loadCaptures();
-    if (btn.dataset.tab === 'live') refreshOverview();
   });
 });
 
@@ -275,7 +274,13 @@ async function loadHistory() {
       td.colSpan = 5; td.style.color = '#86909c';
       histTbody.appendChild(tr);
     }
-    for (const rec of data.rows) histTbody.appendChild(recordRow(rec, true));
+    for (const rec of data.rows) {
+      const tr = recordRow(rec, true);
+      tr.className = 'clickable';
+      tr.title = '点击按该来源 IP 过滤';
+      tr.addEventListener('click', () => { histForm.ip.value = rec.srcIp; histPage = 1; loadHistory(); });
+      histTbody.appendChild(tr);
+    }
     const pages = Math.max(1, Math.ceil(data.total / data.size));
     histPage = Math.min(histPage, pages);
     document.getElementById('hist-total').textContent = `共 ${data.total} 条`;
@@ -292,6 +297,11 @@ document.getElementById('hist-next').addEventListener('click', () => { histPage+
 const clTbody = document.getElementById('cl-tbody');
 const clDetail = document.getElementById('cl-detail');
 let clCurrentFrom = null;
+function clFrom() {
+  const v = document.getElementById("cl-range").value;
+  return v ? Date.now() - Number(v) : null;
+}
+
 let clCurrentDetailIp = '';
 
 function behaviorCell(tr, c) {
@@ -688,6 +698,8 @@ function renderPacketDetail(d) {
   }
   document.getElementById('pkt-hex').textContent = d.hex || '(空)';
   document.getElementById('pd-copy').style.display = d.payloadText ? '' : 'none';
+  const canStream = (d.proto === 'tcp' || d.proto === 'udp') && d.srcPort && d.dstPort;
+  document.getElementById('pd-stream').style.display = canStream ? '' : 'none';
 }
 
 function pktRow(p) {
@@ -719,6 +731,7 @@ function openPackets(id) {
   document.getElementById('pkt-filter').value = '';
   document.getElementById('pkt-match').textContent = '';
   document.getElementById('pkt-detail').classList.add('hidden');
+  document.getElementById('stream-panel').classList.add('hidden');
   showPackets();
 }
 
@@ -734,6 +747,7 @@ function applyPktFilter(q) {
   pktSelectedNo = 0;
   pktDetailData = null;
   document.getElementById('pkt-detail').classList.add('hidden');
+  document.getElementById('stream-panel').classList.add('hidden');
   showPackets();
 }
 
@@ -749,8 +763,15 @@ function renderPktAnalysis(an) {
   if (an.badPackets) head.textContent += ` · ${an.badPackets} 包无法解码`;
   if (an.truncated) head.textContent += ' · 末尾截断（停止时最后一个包不完整，已忽略）';
   el.appendChild(head);
-  // 点标签 → 直接生成过滤条件
-  const chipRow = (label, items, fmt, qf) => {
+  // 自动诊断结论：直接告诉用户"这堆包说明了什么"
+  for (const f of an.findings || []) {
+    const d = document.createElement('div');
+    d.className = 'pa-finding ' + (f.level || 'info');
+    d.textContent = (f.level === 'warn' ? '⚠ ' : f.level === 'ok' ? '✓ ' : 'ℹ ') + f.text;
+    el.appendChild(d);
+  }
+  // 点标签 → 直接生成过滤条件；「流」按钮 → 打开会话流还原
+  const chipRow = (label, items, fmt, qf, onAux) => {
     if (!items || !items.length) return;
     const row = document.createElement('div');
     row.className = 'pa-row';
@@ -766,6 +787,15 @@ function renderPktAnalysis(an) {
       chip.style.cursor = 'pointer';
       chip.addEventListener('click', () => applyPktFilter(qf(it)));
       row.appendChild(chip);
+      if (onAux) {
+        const aux = document.createElement('button');
+        aux.type = 'button';
+        aux.className = 'pa-aux';
+        aux.textContent = '流';
+        aux.title = '还原该对话的会话流（双向载荷按时间排列）';
+        aux.addEventListener('click', () => onAux(it));
+        row.appendChild(aux);
+      }
     }
     el.appendChild(row);
   };
@@ -778,6 +808,9 @@ function renderPktAnalysis(an) {
     const m = String(it.k).match(/^(\S+):(\d+)\s*→\s*(\S+):(\d+)$/);
     if (!m) return '';
     return `ip:${m[1]} ip:${m[3]} port:${m[4]}`;
+  }, it => {
+    if (it.ap && it.bp) openStream(it.a, it.ap, it.b, it.bp);
+    else toast('该对话没有端口信息（如 ICMP），不支持会话流还原');
   });
 }
 
@@ -848,6 +881,46 @@ document.getElementById('pd-copy').addEventListener('click', async () => {
   }
 });
 
+// ---------- 会话流视图：按对话双向还原载荷（类 Wireshark Follow Stream） ----------
+async function openStream(a, ap, b, bp) {
+  try {
+    const r = await api(`/api/captures/stream?id=${pktCurrentId}&a=${encodeURIComponent(a)}&ap=${ap}&b=${encodeURIComponent(b)}&bp=${bp}`);
+    document.getElementById('pkt-detail').classList.add('hidden');
+    const panel = document.getElementById('stream-panel');
+    panel.classList.remove('hidden');
+    document.getElementById('stream-title').textContent = `会话流  ${a}:${ap} ⇄ ${b}:${bp}`;
+    document.getElementById('stream-meta').textContent =
+      `共 ${r.segCount} 个报文 / ${fmtSize(r.bytes)} · 时长 ${(r.durationMs / 1000).toFixed(1)} 秒 · 按时间排列（蓝=A→B，绿=B→A）`;
+    const body = document.getElementById('stream-body');
+    body.textContent = '';
+    for (const s of r.segments) {
+      const head = document.createElement('div');
+      head.className = 'stream-head ' + (s.dir === 'ab' ? 'dir-ab' : 'dir-ba');
+      head.textContent = `#${s.no} ${s.dir === 'ab' ? `${a}:${ap} → ${b}:${bp}` : `${b}:${bp} → ${a}:${ap}`}  +${(s.dtMs / 1000).toFixed(3)}s  ${s.len}B${s.flags ? `  [${s.flags}]` : ''}`;
+      body.appendChild(head);
+      if (s.payloadLen > 0) {
+        const pre = document.createElement('div');
+        pre.className = 'stream-payload';
+        pre.textContent = s.text || `[二进制载荷 ${s.payloadLen} 字节 —— 在报文列表点该包看 hex]`;
+        body.appendChild(pre);
+      } else if (s.summary) {
+        const c = document.createElement('div');
+        c.className = 'stream-ctrl';
+        c.textContent = `[${s.summary}]`;
+        body.appendChild(c);
+      }
+    }
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+document.getElementById('stream-close').addEventListener('click', () => document.getElementById('stream-panel').classList.add('hidden'));
+document.getElementById('pd-stream').addEventListener('click', () => {
+  const d = pktDetailData;
+  if (d && d.srcPort && d.dstPort) openStream(d.src, d.srcPort, d.dst, d.dstPort);
+});
+
 document.getElementById('cap-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
@@ -889,8 +962,10 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
 
 // ---------- 账号 ----------
 let myRole = 'viewer';
+let NO_AUTH = false;
 document.getElementById('whoami').addEventListener('click', () => {
-  document.querySelector('nav .tab[data-tab=users]').click();
+  const t = document.querySelector('nav .tab[data-tab=users]');
+  if (t) t.click();
 });
 
 document.getElementById('pw-form').addEventListener('submit', async (e) => {
@@ -984,9 +1059,19 @@ document.getElementById('user-reset-form').addEventListener('submit', async (e) 
   try {
     const s = await api('/api/session');
     myRole = s.role === 'admin' ? 'admin' : 'viewer';
-    document.getElementById('whoami').textContent =
-      `${s.user}（${myRole === 'admin' ? '管理员' : '只读'}）`;
-    document.getElementById('users-mgr').classList.toggle('hidden', myRole !== 'admin');
+    NO_AUTH = !!s.noAuth;
+    const whoami = document.getElementById('whoami');
+    if (s.noAuth) {
+      // 桌面版免登录：数据不出本机，隐藏退出/账号页
+      whoami.textContent = '本地模式 · 免登录';
+      whoami.title = '';
+      document.getElementById('btn-logout').classList.add('hidden');
+      const usersTab = document.querySelector('nav .tab[data-tab=users]');
+      if (usersTab) usersTab.remove();
+    } else {
+      whoami.textContent = `${s.user}（${myRole === 'admin' ? '管理员' : '只读'}）`;
+      document.getElementById('users-mgr').classList.toggle('hidden', myRole !== 'admin');
+    }
     const modeEl = document.getElementById('capture-mode');
     const li = s.listen || {};
     if (s.capture === 'replay') {
@@ -1029,5 +1114,6 @@ document.getElementById('user-reset-form').addEventListener('submit', async (e) 
   loadCaptureHosts();
   refreshOverview();
   setInterval(refreshOverview, 60000);
-  loadUsers();
+  loadHistory();
+  if (!NO_AUTH) loadUsers();
 })();
