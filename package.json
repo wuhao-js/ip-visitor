@@ -11,11 +11,24 @@
   "engines": {
     "node": ">=22.13"
   },
+  "pkg": {
+    "assets": [
+      "public/**/*"
+    ],
+    "targets": [
+      "node24-win-x64"
+    ],
+    "outputPath": "dist"
+  },
   "dependencies": {
     "express": "^4.21.2",
     "ssh2": "^1.17.0"
   },
   "optionalDependencies": {
     "better-sqlite3": "^11.10.0"
+  },
+  "devDependencies": {
+    "@yao-pkg/pkg": "^6.23.0",
+    "electron": "^44.7.2"
   }
 }

@@ -14,6 +14,14 @@ p{margin:6px 0}
 <p>解析 tcpdump 抓包文本输出，记录<b>入站方向</b>（别人访问本服务器）的 TCP/UDP/ICMP 流量，</p>
 <p>通过带密码授权的 Web 页面实时查看、查询历史、统计来访客户端，并对异常行为告警、</p>
 <p>支持针对指定 IP/端口按需抓包导出 pcap 深入分析。</p>
+<h2>两种使用方式</h2>
+<table>
+<tr><th>方式</th><th>适合场景</th><th>上手</th></tr>
+<tr><td><b>Windows 桌面版（exe）</b></td><td>办公电脑直接双击使用，免装 Node/免配环境</td><td>到 [Releases](https://github.com/wuhao-js/ip-visitor/releases) 下载 <code>ip-visitor-win-x64-v1.0.0.zip</code>，解压后双击 <code>ip-visitor.exe</code>，弹出独立应用窗口</td></tr>
+<tr><td><b>服务器部署（Web 端）</b></td><td>Linux 服务器长期监控入站流量，浏览器访问</td><td>源码部署，见下方「快速开始」与 systemd 部署示例</td></tr>
+</table>
+<p>两种方式界面与功能完全一致（桌面版 = 内置内核 <code>ip-visitor-core.exe</code> + Electron 独立窗口，<b>不依赖系统浏览器</b>）。</p>
+<ul><li>初始账号：<code>admin / admin123</code>，登录后请在「账号」页修改密码（可再建 viewer 只读账号给同事看）</li><li>桌面版监控远程 Linux 服务器：页面「抓包诊断 → 管理主机」添加 SSH 主机即可（Windows 本机没有 tcpdump，远程抓包由服务器端执行）</li><li>桌面版数据（config.json / data/）生成在 <code>resources</code> 目录旁边，整目录拷贝即迁移</li></ul>
 <h2>功能</h2>
 <ul><li>实时：SSE 推送新入站包；24h 小时级趋势图、Top 来访客户端 / Top 访问端口</li><li>历史：按来源 IP、目标端口、协议、时间范围筛选，分页浏览</li><li>客户端统计：访问次数、持续时长、频率、访问端口（带服务名如 3306(MySQL)）、协议分布</li><li>行为判定：⚠ 疑似端口扫描（窗口内 distinct 端口数超阈值）、「新」首次来访 IP</li><li>告警：新客户端 / 疑似扫描入 SQLite + 页面红点实时推送 + webhook 通知</li></ul>
 <p>  （企业微信/钉钉群机器人格式），面板内可发测试告警验证链路</p>
@@ -24,7 +32,7 @@ p{margin:6px 0}
 <p>  报文列表与 hex 原始字节（Wireshark 式，TCP/UDP 载荷为 JSON/可读文本时自动解析展示，</p>
 <p>  二进制 hex 全量显示不截断），也可下载 pcap 深入分析</p>
 <ul><li>只记入站：默认内核级 <code>-Q in</code> 过滤；不支持时降级为「目标为本机 IP 且来源非本机」</li><li>多用户登录：账号+密码（scrypt 哈希存储），admin（管理员）/ viewer（只读）两种角色；</li></ul>
-<p>  首次启动自动把 config.password 迁移为 admin 账号；页面「账号」页改密码、管理员可增删用户</p>
+<p>  首次启动自动创建 admin 账号（初始密码 admin123，或 config.password 指定值）；页面「账号」页改密码、管理员可增删用户</p>
 <ul><li>报文查看：Wireshark 式三栏（包列表 → 选中详情 → 载荷/原始字节），支持显示过滤</li></ul>
 <p>  （<code>ip:x port:x tcp syn has:payload text:关键字</code>，空格=并且；点摘要标签直接生成条件）</p>
 <ul><li>简单授权：未授权 API 返回 401，页面跳登录页；登录失败 5 次锁定 10 分钟</li><li>SQLite 存储（WAL 模式），记录与告警按保留期自动清理（默认 7 天）</li></ul>
@@ -36,7 +44,7 @@ p{margin:6px 0}
 <h2>快速开始</h2>
 <p>```bash</p>
 <p>npm install</p>
-<p>sudo node src/server.js          # 首次启动生成 config.json 并打印访问密码</p>
+<p>sudo node src/server.js          # 首次启动生成 config.json 并自动创建 admin 账号（初始密码 admin123）</p>
 <h1>浏览器访问 http://&lt;服务器IP&gt;:8321</h1>
 <p>```</p>
 <p>Windows 本机无 tcpdump，用回放模式验证功能：</p>
@@ -47,7 +55,7 @@ p{margin:6px 0}
 <table>
 <tr><th>字段</th><th>默认</th><th>说明</th></tr>
 <tr><td>port</td><td>8321</td><td>Web 监听端口</td></tr>
-<tr><td>password</td><td>自动生成</td><td>初始密码（仅用于首次启动创建 admin 账号，之后登录在页面改密）</td></tr>
+<tr><td>password</td><td>空（默认 admin123）</td><td>初始 admin 密码（仅首次启动建号用；留空=公开默认值，请登录后在「账号」页修改）</td></tr>
 <tr><td>secret</td><td>自动生成</td><td>会话 Cookie 签名密钥，勿泄露</td></tr>
 <tr><td>dbFile</td><td>data/access.db</td><td>SQLite 文件路径</td></tr>
 <tr><td>iface</td><td>any</td><td>抓包网卡（eth0/ens192 等）</td></tr>
@@ -70,7 +78,8 @@ p{margin:6px 0}
 <p>4. 抓包诊断页「目标」下拉选择远程主机即可（默认「本机」始终可见）</p>
 <h2>命令行参数</h2>
 <p>```</p>
-<p>node src/server.js [--config file] [--replay file] [--loop] [--port n] [--iface name] [--force-no-q]</p>
+<p>node src/server.js [--config file] [--replay file] [--loop] [--port n] [--host addr] [--iface name] [--force-no-q]</p>
+<h1>--host 默认 0.0.0.0（局域网可访问）；桌面版内核用 --host 127.0.0.1 仅本机访问</h1>
 <p>```</p>
 <h2>systemd 部署示例</h2>
 <p>```ini</p>

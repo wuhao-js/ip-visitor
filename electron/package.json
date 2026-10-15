@@ -1,0 +1,7 @@
+{
+  "name": "ip-visitor-app",
+  "version": "1.0.0",
+  "description": "ip-visitor 桌面壳：内嵌内核服务 + 独立窗口",
+  "main": "main.js",
+  "productName": "ip-visitor"
+}

@@ -5,7 +5,7 @@ const crypto = require('crypto');
 
 const DEFAULTS = {
   port: 8321,
-  password: '',
+  password: '',           // 初始 admin 密码来源；留空用内置默认 admin123（登录后请修改）
   secret: '',
   dbFile: 'data/access.db',
   iface: 'any',
@@ -25,15 +25,10 @@ const DEFAULTS = {
   remoteHosts: [],
 };
 
-function genPassword(len = 12) {
-  const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
-  const bytes = crypto.randomBytes(len);
-  let out = '';
-  for (let i = 0; i < len; i++) out += chars[bytes[i] % chars.length];
-  return out;
-}
+// 内置默认账号 admin 的公开初始密码（首次启动自动建号，登录后请在「账号」页修改）
+const DEFAULT_ADMIN_PASSWORD = 'admin123';
 
-// 加载配置；不存在则生成 config.json（自动生成密码与签名密钥并打印）
+// 加载配置；不存在则生成 config.json（仅生成签名密钥，初始密码不落盘）
 function loadConfig(configPath = 'config.json') {
   let cfg = {};
   if (fs.existsSync(configPath)) {
@@ -41,19 +36,20 @@ function loadConfig(configPath = 'config.json') {
   }
   const merged = { ...DEFAULTS, ...cfg };
   let created = false;
-  if (!merged.password) { merged.password = genPassword(); created = true; }
+  if (!merged.password) merged.password = DEFAULT_ADMIN_PASSWORD;
   if (!merged.secret) { merged.secret = crypto.randomBytes(32).toString('hex'); created = true; }
   if (created || !fs.existsSync(configPath)) {
-    fs.writeFileSync(configPath, JSON.stringify(merged, null, 2) + '\n');
+    const persist = { ...merged };
+    delete persist.password;
+    fs.writeFileSync(configPath, JSON.stringify(persist, null, 2) + '\n');
   }
   if (created) {
     console.log('='.repeat(56));
     console.log('首次启动已生成 config.json');
-    console.log(`访问密码: ${merged.password}`);
-    console.log('（请妥善保管；修改 config.json 后重启生效）');
+    console.log('初始账号: admin / admin123（登录后请在「账号」页修改密码）');
     console.log('='.repeat(56));
   }
   return merged;
 }
 
-module.exports = { loadConfig, genPassword, DEFAULTS };
+module.exports = { loadConfig, DEFAULT_ADMIN_PASSWORD, DEFAULTS };

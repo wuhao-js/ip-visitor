@@ -4,4 +4,5 @@ data-test/
 config.json
 *.log
 .devloop/
+dist/
 !test/samples/*.log

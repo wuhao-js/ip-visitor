@@ -23,6 +23,7 @@ function parseArgv(argv) {
     else if (a === '--replay') out.replay = argv[++i];
     else if (a === '--loop') out.loop = true;
     else if (a === '--port') out.port = Number(argv[++i]);
+    else if (a === '--host') out.host = argv[++i];
     else if (a === '--iface') out.iface = argv[++i];
     else if (a === '--force-no-q') out.forceNoQ = true;
     else if (a === '--help') out.help = true;
@@ -31,12 +32,17 @@ function parseArgv(argv) {
 }
 
 const argv = parseArgv(process.argv);
+
+// 打包为单文件 exe（pkg）时，把工作目录切到 exe 所在目录，
+// 使 config.json / data/ 等相对路径始终落在 exe 旁边
+if (process.pkg) process.chdir(path.dirname(process.execPath));
 if (argv.help) {
   console.log(`用法: node src/server.js [选项]
   --config <file>    配置文件路径（默认 config.json）
   --replay <file>    回放 tcpdump 文本样本（代替实时抓包，用于本机验证）
   --loop             回放模式循环执行
   --port <n>         覆盖监听端口
+  --host <addr>      覆盖监听地址（默认 0.0.0.0；桌面模式用 127.0.0.1 仅本机访问）
   --iface <name>     覆盖抓包网卡（默认 any）
   --force-no-q       不使用 -Q in，改按本机 IP 过滤入站`);
   process.exit(0);
@@ -44,6 +50,7 @@ if (argv.help) {
 
 const config = loadConfig(argv.config);
 if (argv.port) config.port = argv.port;
+if (argv.host) config.listenHost = argv.host;
 if (argv.iface) config.iface = argv.iface;
 if (argv.replay) config.replay = argv.replay;
 if (argv.loop) config.loop = true;
@@ -55,7 +62,7 @@ console.log(`[db] SQLite 已打开: ${config.dbFile} (driver=${db.driverName})`)
 // 多用户引导：users 表为空时，把 config.password 迁移为管理员账号 admin（哈希存储）
 if (db.countUsers() === 0) {
   db.insertUser('admin', hashPassword(config.password), 'admin');
-  console.log('[auth] 已创建管理员账号 admin（密码 = config.json 的 password，登录后可在「账号」页修改）');
+  console.log('[auth] 已创建管理员账号 admin（初始密码 admin123，登录后可在「账号」页修改）');
 }
 
 const collector = new Collector(config, db);
@@ -205,9 +212,35 @@ app.post('/logout', (_req, res) => {
 });
 
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
-app.use(express.static(path.join(__dirname, '..', 'public'), {
-  setHeaders: (res) => res.set('Cache-Control', 'no-store'), // 前端改动即时生效，避免浏览器缓存旧 JS
-}));
+
+// 手写静态服务：pkg 打包的虚拟文件系统下 express.static(内部 send 模块) 会 404，
+// 基于 fs.readFile 的实现在 pkg 与普通 node 下行为一致
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const STATIC_MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+};
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  let rel;
+  try { rel = decodeURIComponent(req.path.replace(/^\/+/, '')); } catch (_e) { return next(); }
+  if (!rel || rel.includes('..') || rel.includes('\\')) return next();
+  const file = path.join(PUBLIC_DIR, rel);
+  if (!file.startsWith(PUBLIC_DIR + path.sep)) return next();
+  fs.readFile(file, (err, data) => {
+    if (err) return next();
+    res.set('Content-Type', STATIC_MIME[path.extname(file).toLowerCase()] || 'application/octet-stream');
+    res.set('Cache-Control', 'no-store'); // 前端改动即时生效，避免缓存旧 JS
+    res.end(req.method === 'HEAD' ? undefined : data);
+  });
+});
 
 // ---- API ----
 app.get('/api/session', async (req, res) => {
@@ -402,8 +435,9 @@ function runCleanup() {
 runCleanup();
 setInterval(runCleanup, 3600 * 1000).unref();
 
-const server = app.listen(config.port, () => {
-  console.log(`[web] http://0.0.0.0:${config.port}  (capture=${config.replay ? 'replay' : 'tcpdump'}, mode=${collector.mode})`);
+const listenHost = config.listenHost || '0.0.0.0';
+const server = app.listen(config.port, listenHost, () => {
+  console.log(`[web] http://${listenHost === '0.0.0.0' ? '<本机IP>' : listenHost}:${config.port}  (capture=${config.replay ? 'replay' : 'tcpdump'}, mode=${collector.mode})`);
 });
 server.on('error', (e) => {
   if (e.code === 'EADDRINUSE') {
