@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><title>README</title>
+<style>
+body{font-family:"Microsoft YaHei",sans-serif;max-width:960px;margin:30px auto;padding:0 20px;color:#222;line-height:1.6}
+h1{font-size:22px;border-bottom:2px solid #1a9c8c;padding-bottom:8px}
+h2{font-size:17px;color:#1a9c8c;margin-top:28px}
+table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px}
+th,td{border:1px solid #ccc;padding:6px 10px;text-align:left;vertical-align:top}
+th{background:#eef7f6;font-weight:bold}
+code{background:#f4f4f4;padding:1px 5px;border-radius:3px;font-family:Consolas,monospace;color:#c0392b}
+p{margin:6px 0}
+</style></head><body>
+<h1>ip-visitor 服务器来访IP监控</h1>
+<p>解析 tcpdump 抓包文本输出，记录<b>入站方向</b>（别人访问本服务器）的 TCP/UDP/ICMP 流量，</p>
+<p>通过带密码授权的 Web 页面实时查看、查询历史、统计来访客户端，并对异常行为告警、</p>
+<p>支持针对指定 IP/端口按需抓包导出 pcap 深入分析。</p>
+<h2>功能</h2>
+<ul><li>实时：SSE 推送新入站包；24h 小时级趋势图、Top 来访客户端 / Top 访问端口</li><li>历史：按来源 IP、目标端口、协议、时间范围筛选，分页浏览</li><li>客户端统计：访问次数、持续时长、频率、访问端口（带服务名如 3306(MySQL)）、协议分布</li><li>行为判定：⚠ 疑似端口扫描（窗口内 distinct 端口数超阈值）、「新」首次来访 IP</li><li>告警：新客户端 / 疑似扫描入 SQLite + 页面红点实时推送 + webhook 通知</li></ul>
+<p>  （企业微信/钉钉群机器人格式），面板内可发测试告警验证链路</p>
+<ul><li>抓包诊断：按 IP / 端口 / 协议定向抓包 10-300 秒（本机或 <b>SSH 远程主机</b>，支持用户名+密码；</li></ul>
+<p>  IP 为双向匹配，类似 Wireshark 的 ip.addr，填服务器 IP 或客户端 IP 均可），</p>
+<p>  远程主机在页面「管理主机」里直接增删改（写回 config.json 热生效，无需重启），</p>
+<p>  可随时手动停止；页面内直接看<b>分析摘要</b>（总量/速率/协议分布/TCP 标志/Top 端口/Top 来源/对话排行）、</p>
+<p>  报文列表与 hex 原始字节（Wireshark 式，TCP/UDP 载荷为 JSON/可读文本时自动解析展示，</p>
+<p>  二进制 hex 全量显示不截断），也可下载 pcap 深入分析</p>
+<ul><li>只记入站：默认内核级 <code>-Q in</code> 过滤；不支持时降级为「目标为本机 IP 且来源非本机」</li><li>多用户登录：账号+密码（scrypt 哈希存储），admin（管理员）/ viewer（只读）两种角色；</li></ul>
+<p>  首次启动自动把 config.password 迁移为 admin 账号；页面「账号」页改密码、管理员可增删用户</p>
+<ul><li>报文查看：Wireshark 式三栏（包列表 → 选中详情 → 载荷/原始字节），支持显示过滤</li></ul>
+<p>  （<code>ip:x port:x tcp syn has:payload text:关键字</code>，空格=并且；点摘要标签直接生成条件）</p>
+<ul><li>简单授权：未授权 API 返回 401，页面跳登录页；登录失败 5 次锁定 10 分钟</li><li>SQLite 存储（WAL 模式），记录与告警按保留期自动清理（默认 7 天）</li></ul>
+<h2>运行要求</h2>
+<ul><li>Node.js &gt;= 22.13（使用内置 node:sqlite；低版本请 <code>npm i better-sqlite3</code> 自动回退）</li><li>Linux 服务器需安装 tcpdump，且 Node 进程有抓包权限：</li></ul>
+<p>  - <code>sudo node src/server.js</code>，或</p>
+<p>  - <code>sudo setcap cap_net_raw+eip $(which tcpdump)</code>（免 root，推荐），或</p>
+<p>  - <code>sudo setcap cap_net_raw+eip $(readlink -f $(which node))</code>（给 node 授权，二选一）</p>
+<h2>快速开始</h2>
+<p>```bash</p>
+<p>npm install</p>
+<p>sudo node src/server.js          # 首次启动生成 config.json 并打印访问密码</p>
+<h1>浏览器访问 http://&lt;服务器IP&gt;:8321</h1>
+<p>```</p>
+<p>Windows 本机无 tcpdump，用回放模式验证功能：</p>
+<p>```bash</p>
+<p>npm run start:replay             # 循环回放 test/samples/sample.log</p>
+<p>```</p>
+<h2>配置（config.json）</h2>
+<table>
+<tr><th>字段</th><th>默认</th><th>说明</th></tr>
+<tr><td>port</td><td>8321</td><td>Web 监听端口</td></tr>
+<tr><td>password</td><td>自动生成</td><td>初始密码（仅用于首次启动创建 admin 账号，之后登录在页面改密）</td></tr>
+<tr><td>secret</td><td>自动生成</td><td>会话 Cookie 签名密钥，勿泄露</td></tr>
+<tr><td>dbFile</td><td>data/access.db</td><td>SQLite 文件路径</td></tr>
+<tr><td>iface</td><td>any</td><td>抓包网卡（eth0/ens192 等）</td></tr>
+<tr><td>retentionDays</td><td>7</td><td>记录保留天数，0 为不清理</td></tr>
+<tr><td>tcpdumpBin</td><td>tcpdump</td><td>tcpdump 可执行文件路径</td></tr>
+<tr><td>sessionHours</td><td>12</td><td>登录会话有效期</td></tr>
+<tr><td>localIps</td><td>[]</td><td>服务器自身 IP（NAT/多网卡时补充，用于入站判定与回放）</td></tr>
+<tr><td>scanPortsThreshold</td><td>15</td><td>扫描判定：窗口内 distinct 端口数阈值</td></tr>
+<tr><td>scanWindowMin</td><td>10</td><td>扫描判定时间窗口（分钟）</td></tr>
+<tr><td>newIpHours</td><td>24</td><td>多少小时内首次出现的 IP 标记为「新」</td></tr>
+<tr><td>webhookUrl</td><td>空</td><td>企业微信/钉钉群机器人 webhook，空为不通知</td></tr>
+<tr><td>captureDir</td><td>data/captures</td><td>按需抓包 pcap 存放目录</td></tr>
+<tr><td>remoteHosts</td><td>[]</td><td>远程抓包主机：<code>[{"name":"web-1","host":"10.0.0.11","port":22,"user":"root","password":"xxx"}]</code>（密码与 keyFile 二选一）</td></tr>
+</table>
+<p>### 远程抓包说明</p>
+<p>控制端通过 SSH（ssh2 库，支持<b>用户名+密码</b>或密钥）在目标机执行 <code>tcpdump -nn -U -w - '&lt;BPF&gt;'</code>，pcap 流式回传落盘：</p>
+<p>1. 推荐：抓包诊断页点「管理主机」，在页面里直接添加（名称/IP/端口/用户/密码），保存即生效</p>
+<p>2. 也可以直接编辑 config.json 的 remoteHosts（<code>password</code> 或 <code>keyFile</code> 二选一），改完重启</p>
+<p>3. user 为 root 直接跑 tcpdump；非 root 需在目标机配置 <code>sudo tcpdump</code> 免密（<code>visudo</code> 加 <code>user ALL=(ALL) NOPASSWD: /usr/sbin/tcpdump</code>）</p>
+<p>4. 抓包诊断页「目标」下拉选择远程主机即可（默认「本机」始终可见）</p>
+<h2>命令行参数</h2>
+<p>```</p>
+<p>node src/server.js [--config file] [--replay file] [--loop] [--port n] [--iface name] [--force-no-q]</p>
+<p>```</p>
+<h2>systemd 部署示例</h2>
+<p>```ini</p>
+<h1>/etc/systemd/system/ip-visitor.service</h1>
+<p>[Unit]</p>
+<p>After=network-online.target</p>
+<p>[Service]</p>
+<p>WorkingDirectory=/opt/ip-visitor</p>
+<p>ExecStart=/usr/bin/node src/server.js</p>
+<p>Restart=always</p>
+<p>AmbientCapabilities=CAP_NET_RAW</p>
+<p>[Install]</p>
+<p>WantedBy=multi-user.target</p>
+<p>```</p>
+<p><code>AmbientCapabilities=CAP_NET_RAW</code> 使 node 具备抓包能力，无需 root。</p>
+<h2>API（均需登录 Cookie；标注 🔒 的仅管理员，viewer 只读账号无权调用）</h2>
+<table>
+<tr><th>方法</th><th>路径</th><th>说明</th></tr>
+<tr><td>POST</td><td>/login</td><td>{user, password} 登录</td></tr>
+<tr><td>POST</td><td>/logout</td><td>登出</td></tr>
+<tr><td>GET</td><td>/api/session</td><td>当前登录身份（user/role）+ 监听对象 + tcpdump 可用性</td></tr>
+<tr><td>GET</td><td>/api/overview</td><td>总量统计</td></tr>
+<tr><td>GET</td><td>/api/records</td><td>历史记录 ?ip=&amp;port=&amp;proto=&amp;from=&amp;to=&amp;page=&amp;size=</td></tr>
+<tr><td>GET</td><td>/api/clients</td><td>客户端统计 ?from=</td></tr>
+<tr><td>GET</td><td>/api/clients/:ip</td><td>单客户端端口明细 + 最近记录</td></tr>
+<tr><td>GET</td><td>/api/alerts</td><td>告警列表 ?limit=</td></tr>
+<tr><td>POST</td><td>/api/alerts/test</td><td>🔒 发送测试告警（验证 SSE/webhook 链路）</td></tr>
+<tr><td>POST</td><td>/api/captures</td><td>🔒 发起定向抓包 {target?, ip?, port?, proto?, seconds}</td></tr>
+<tr><td>POST</td><td>/api/captures/stop</td><td>🔒 停止当前抓包（按正常完成处理）</td></tr>
+<tr><td>GET</td><td>/api/captures</td><td>抓包任务列表</td></tr>
+<tr><td>GET</td><td>/api/captures/hosts</td><td>可抓包目标（本机 + 远程主机）</td></tr>
+<tr><td>GET</td><td>/api/captures/packets</td><td>抓包报文分页解析 ?id=&amp;page=&amp;size=&amp;q=（q=显示过滤，返回 matched 计数，不含 hex）</td></tr>
+<tr><td>GET</td><td>/api/captures/packet</td><td>单包详情 ?id=&amp;no=（解码字段 + 载荷解码 + 全量 hex）</td></tr>
+<tr><td>GET</td><td>/api/captures/analyze</td><td>抓包分析摘要（协议/标志/端口/来源/对话） ?id=</td></tr>
+<tr><td>GET</td><td>/api/captures/download?id=</td><td>下载 pcap</td></tr>
+<tr><td>GET/POST/DELETE</td><td>/api/remote-hosts</td><td>🔒 页面管理远程抓包主机（增删改，密码不回显，写回 config.json 热生效）</td></tr>
+<tr><td>POST</td><td>/api/mode/real</td><td>🔒 运行时从回放模式切换到真实抓包</td></tr>
+<tr><td>GET</td><td>/api/users</td><td>🔒 用户列表</td></tr>
+<tr><td>POST</td><td>/api/users</td><td>🔒 新建用户 {user, password, role: admin\</td><td>viewer}</td></tr>
+<tr><td>POST</td><td>/api/users/password</td><td>改密码：admin 可改任何人；自己改需验证旧密码</td></tr>
+<tr><td>DELETE</td><td>/api/users/:name</td><td>🔒 删除用户（不能删自己，至少保留一个管理员）</td></tr>
+<tr><td>GET</td><td>/api/stream</td><td>SSE 实时推送（record / alert 事件）</td></tr>
+</table>
+<h2>已知限制</h2>
+<ul><li>解析的是 tcpdump 文本输出（<code>-l -nn -tttt -q</code>），tcpdump 大版本间格式差异可能影响解析</li><li>TCP/UDP 字节数为负载长度；ICMP 记录类型描述行中的 length</li><li>IPv6 地址按 tcpdump 显示形式存储（小写），不展开压缩形式</li></ul>
+</body></html>

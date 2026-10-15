@@ -1,0 +1,21 @@
+{
+  "name": "ip-visitor",
+  "version": "1.0.0",
+  "description": "服务器来访IP查看：解析 tcpdump 入站流量（TCP/UDP/ICMP），SQLite 存储，密码授权的 Web 实时/历史/统计查看",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "start:replay": "node src/server.js --replay test/samples/sample.log --loop",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ssh2": "^1.17.0"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.10.0"
+  }
+}

@@ -1,0 +1,7 @@
+node_modules/
+data/
+data-test/
+config.json
+*.log
+.devloop/
+!test/samples/*.log

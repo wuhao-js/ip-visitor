@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>来访IP监控 - 登录</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", system-ui, sans-serif;
+    background: #f0f2f5; display: flex; align-items: center; justify-content: center;
+    min-height: 100vh;
+  }
+  .card {
+    background: #fff; border-radius: 10px; padding: 36px 32px; width: 340px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.08);
+  }
+  h1 { font-size: 19px; text-align: center; margin-bottom: 6px; color: #1f2329; }
+  p.sub { text-align: center; color: #86909c; font-size: 13px; margin-bottom: 24px; }
+  input[type=password], input[type=text] {
+    width: 100%; padding: 10px 12px; border: 1px solid #d0d5dd; border-radius: 6px;
+    font-size: 14px; outline: none;
+  }
+  input:focus { border-color: #4f7cff; }
+  input + input { margin-top: 10px; }
+  button {
+    width: 100%; margin-top: 14px; padding: 10px; background: #4f7cff; color: #fff;
+    border: none; border-radius: 6px; font-size: 14px; cursor: pointer;
+  }
+  button:hover { background: #3d6ae8; }
+  button:disabled { background: #a8bdf7; cursor: not-allowed; }
+  .err { color: #d4380d; font-size: 13px; min-height: 18px; margin-top: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>来访IP监控</h1>
+  <p class="sub">请输入账号密码</p>
+  <form id="f">
+    <input id="user" type="text" placeholder="账号" autocomplete="username" autofocus>
+    <input id="pw" type="password" placeholder="密码" autocomplete="current-password">
+    <button id="btn" type="submit">登 录</button>
+    <div class="err" id="err"></div>
+  </form>
+</div>
+<script>
+document.getElementById('f').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('btn');
+  const err = document.getElementById('err');
+  btn.disabled = true; err.textContent = '';
+  try {
+    const r = await fetch('/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user: document.getElementById('user').value.trim(), password: document.getElementById('pw').value }),
+    });
+    if (r.ok) { location.href = '/'; return; }
+    const j = await r.json().catch(() => ({}));
+    err.textContent = j.error || ('登录失败 (' + r.status + ')');
+  } catch (_e) {
+    err.textContent = '网络错误';
+  }
+  btn.disabled = false;
+});
+</script>
+</body>
+</html>

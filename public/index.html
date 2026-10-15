@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>来访IP监控</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <div class="hd-left">
+    <span class="logo">来访IP监控</span>
+    <span class="mode" id="capture-mode"></span>
+  </div>
+  <div class="hd-right">
+    <span class="stat-inline">24h来访 <b id="hd-clients">-</b> IP / <b id="hd-packets">-</b> 包</span>
+    <span id="alert-dot" class="alert-dot hidden" title="有新告警">●</span>
+    <span id="whoami" class="whoami" title="点击进入账号页">-</span>
+    <button id="btn-logout" class="ghost">退出</button>
+  </div>
+</header>
+
+<nav>
+  <button class="tab active" data-tab="live">实时</button>
+  <button class="tab" data-tab="history">历史记录</button>
+  <button class="tab" data-tab="clients">客户端统计</button>
+  <button class="tab" data-tab="capture">抓包诊断</button>
+  <button class="tab" data-tab="users">账号</button>
+</nav>
+
+<main>
+  <!-- 实时 + 概览 -->
+  <section id="tab-live" class="tabpane active">
+    <div id="listen-info" class="muted" style="margin-bottom:10px"></div>
+    <div class="cards">
+      <div class="card card-trend">
+        <h3>近24小时来访趋势（包/小时）</h3>
+        <canvas id="trend-canvas" width="640" height="150"></canvas>
+      </div>
+      <div class="card">
+        <h3>Top 来访客户端（24h）</h3>
+        <div id="top-clients" class="toplist"></div>
+      </div>
+      <div class="card">
+        <h3>Top 访问端口（24h）</h3>
+        <div id="top-ports" class="toplist"></div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <span class="live-dot" id="live-dot"></span><span id="live-state">连接中…</span>
+      <span class="grow"></span>
+      <span id="live-count" class="muted">已接收 0 条</span>
+      <button id="btn-clear-live" class="ghost">清空</button>
+    </div>
+
+    <div id="alerts-panel" class="detail hidden">
+      <div class="detail-head">
+        <h2>告警（最新 50 条）</h2>
+        <span class="grow"></span>
+        <button id="alerts-test" class="ghost">发送测试告警</button>
+        <button id="alerts-close" class="ghost">关闭</button>
+      </div>
+      <div class="tbl-wrap" style="max-height:200px">
+        <table>
+          <thead><tr><th>时间</th><th>类型</th><th>IP</th><th>详情</th></tr></thead>
+          <tbody id="alerts-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>时间</th><th>来源 IP</th><th>协议</th><th>目标端口</th><th>字节</th></tr></thead>
+        <tbody id="live-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 历史 -->
+  <section id="tab-history" class="tabpane">
+    <form id="hist-form" class="toolbar filters">
+      <label>IP <input name="ip" size="14" placeholder="来源IP"></label>
+      <label>端口 <input name="port" size="5" placeholder="端口"></label>
+      <label>协议
+        <select name="proto">
+          <option value="">全部</option><option value="tcp">TCP</option>
+          <option value="udp">UDP</option><option value="icmp">ICMP</option>
+        </select>
+      </label>
+      <label>从 <input name="from" type="datetime-local"></label>
+      <label>到 <input name="to" type="datetime-local"></label>
+      <button type="submit">查询</button>
+      <button type="button" id="hist-reset">重置</button>
+    </form>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>时间</th><th>来源 IP</th><th>协议</th><th>目标端口</th><th>字节</th></tr></thead>
+        <tbody id="hist-tbody"></tbody>
+      </table>
+    </div>
+    <div class="pager">
+      <span id="hist-total" class="muted"></span>
+      <span class="grow"></span>
+      <button id="hist-prev">&lt; 上一页</button>
+      <span id="hist-page">1 / 1</span>
+      <button id="hist-next">下一页 &gt;</button>
+    </div>
+  </section>
+
+  <!-- 客户端统计 -->
+  <section id="tab-clients" class="tabpane">
+    <div class="toolbar filters">
+      <label>时间范围
+        <select id="cl-range">
+          <option value="3600000">最近1小时</option>
+          <option value="86400000" selected>最近24小时</option>
+          <option value="604800000">最近7天</option>
+          <option value="">全部</option>
+        </select>
+      </label>
+      <button id="cl-refresh">刷新</button>
+      <span class="muted">行为判定：⚠ 短时间试探大量端口为疑似扫描；「新」为近 <span id="newip-hours">24</span> 小时内首次出现的 IP</span>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>来源 IP</th><th>行为判定</th><th>访问次数</th><th>持续时长</th><th>频率</th>
+          <th>首次</th><th>最近</th><th>访问端口（Top10 / 总数）</th>
+        </tr></thead>
+        <tbody id="cl-tbody"></tbody>
+      </table>
+    </div>
+    <div id="cl-detail" class="detail hidden">
+      <div class="detail-head">
+        <h2 id="cl-detail-ip"></h2>
+        <span class="grow"></span>
+        <button id="cl-detail-capture" class="primary">针对此IP抓包</button>
+        <button id="cl-detail-close" class="ghost">关闭</button>
+      </div>
+      <h3>端口明细</h3>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>端口</th><th>协议</th><th>次数</th><th>首次</th><th>最近</th></tr></thead>
+          <tbody id="cl-detail-ports"></tbody>
+        </table>
+      </div>
+      <h3>最近记录</h3>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>时间</th><th>协议</th><th>目标端口</th><th>字节</th></tr></thead>
+          <tbody id="cl-detail-recent"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 抓包诊断 -->
+  <section id="tab-capture" class="tabpane">
+    <form id="cap-form" class="toolbar filters">
+      <label>目标
+        <select name="target" id="cap-target"><option value="local">本机</option></select>
+      </label>
+      <button type="button" id="hosts-mgr" class="ghost">管理主机</button>
+      <label>来源/目标IP <input name="ip" size="15" placeholder="双向匹配，可留空"></label>
+      <label>端口 <input name="port" size="5" placeholder="如 3306"></label>
+      <label>协议
+        <select name="proto">
+          <option value="">全部</option><option value="tcp">TCP</option>
+          <option value="udp">UDP</option><option value="icmp">ICMP</option>
+        </select>
+      </label>
+      <label>时长
+        <select name="seconds">
+          <option value="30">30秒</option>
+          <option value="60" selected>60秒</option>
+          <option value="120">120秒</option>
+          <option value="300">300秒</option>
+        </select>
+      </label>
+      <button type="submit" class="primary" id="cap-start">开始抓包</button>
+      <button type="button" class="danger" id="cap-stop" style="display:none">停止抓包</button>
+      <span id="cap-replay-hint" class="hint-warn" style="display:none">当前是回放模式，本机抓包不可用；通过「管理主机」添加远程主机后仍可对远程主机抓包</span>
+    </form>
+    <p class="muted" style="margin-bottom:10px">针对指定来源按 BPF 过滤抓包（本机或 SSH 远程主机），页内直接查看报文列表与 hex 原始字节，也可下载 pcap 用 Wireshark 深入分析。同一时间仅一个抓包任务。<span id="cap-remote-hint" class="hint-warn"></span></p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>编号</th><th>目标</th><th>过滤条件</th><th>时长</th><th>开始时间</th><th>状态</th><th>大小</th><th></th></tr></thead>
+        <tbody id="cap-tbody"></tbody>
+      </table>
+    </div>
+    <div id="hosts-panel" class="detail hidden">
+      <div class="detail-head">
+        <h2>远程抓包主机管理</h2>
+        <span class="grow"></span>
+        <button id="hosts-close" class="ghost">关闭</button>
+      </div>
+      <p class="muted" style="margin-bottom:8px">直接添加/修改要抓包的服务器连接信息，保存即生效（写回 config.json），无需重启。user 为非 root 时需在目标机配置 sudo tcpdump 免密。</p>
+      <form id="host-form" class="toolbar filters">
+        <input type="hidden" name="origName" value="">
+        <label>名称 <input name="name" size="8" placeholder="如 web-1" required></label>
+        <label>主机 <input name="host" size="13" placeholder="IP 或域名" required></label>
+        <label>端口 <input name="port" size="4" value="22"></label>
+        <label>用户 <input name="user" size="7" placeholder="root" required></label>
+        <label>密码 <input name="password" type="password" size="10" placeholder="留空=不修改"></label>
+        <button type="submit" class="primary" id="host-save">保存</button>
+        <button type="button" class="ghost hidden" id="host-cancel">取消编辑</button>
+      </form>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>名称</th><th>主机</th><th>端口</th><th>用户</th><th>认证</th><th></th></tr></thead>
+          <tbody id="hosts-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div id="pkt-panel" class="detail hidden">
+      <div class="detail-head">
+        <h2 id="pkt-title"></h2>
+        <span class="grow"></span>
+        <button id="pkt-close" class="ghost">关闭</button>
+      </div>
+      <div id="pkt-analysis" class="pkt-analysis"></div>
+      <div class="pkt-filter-bar">
+        <input id="pkt-filter" placeholder="显示过滤：ip:10.0.0.1 port:16002 tcp syn has:payload text:关键字 —— 空格分隔=同时满足，点上方摘要标签可直接填入">
+        <button id="pkt-filter-go" type="button">过滤</button>
+        <button id="pkt-filter-clear" type="button" class="ghost">清除</button>
+      </div>
+      <div class="f-chips">
+        <span class="muted" style="font-size:12px">快捷：</span>
+        <button type="button" class="f-chip" data-q="">全部</button>
+        <button type="button" class="f-chip" data-q="syn">握手 SYN</button>
+        <button type="button" class="f-chip" data-q="rst">RST</button>
+        <button type="button" class="f-chip" data-q="has:payload">有载荷</button>
+        <button type="button" class="f-chip" data-q="json">JSON</button>
+        <button type="button" class="f-chip" data-q="text">文本</button>
+        <span id="pkt-match" class="muted" style="font-size:12px"></span>
+      </div>
+      <div class="tbl-wrap" style="max-height:340px">
+        <table>
+          <thead><tr><th>#</th><th>时间</th><th>来源</th><th>目标</th><th>协议</th><th>端口</th><th>信息</th><th>长度</th></tr></thead>
+          <tbody id="pkt-tbody"></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <span id="pkt-total" class="muted"></span>
+        <span class="grow"></span>
+        <button id="pkt-prev">&lt; 上一页</button>
+        <span id="pkt-page">1 / 1</span>
+        <button id="pkt-next">下一页 &gt;</button>
+      </div>
+      <div id="pkt-detail" class="pkt-detail hidden">
+        <div class="pd-head">
+          <strong id="pd-title"></strong>
+          <span class="grow"></span>
+          <button id="pd-copy" class="ghost" type="button">复制载荷</button>
+        </div>
+        <div id="pd-grid" class="pd-grid"></div>
+        <h3 style="margin:12px 0 6px">应用层载荷</h3>
+        <pre id="pd-payload" class="hexbox" style="max-height:260px"></pre>
+        <h3 style="margin:12px 0 6px">原始字节（hex，全量）</h3>
+        <pre id="pkt-hex" class="hexbox"></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- 账号：改密码（所有人）+ 用户管理（管理员） -->
+  <section id="tab-users" class="tabpane">
+    <div class="detail">
+      <div class="detail-head"><h2>修改我的密码</h2></div>
+      <form id="pw-form" class="inline-form">
+        <input id="pw-old" type="password" placeholder="旧密码" autocomplete="current-password" style="width:180px">
+        <input id="pw-new" type="password" placeholder="新密码（4-64 位）" autocomplete="new-password" style="width:180px">
+        <input id="pw-new2" type="password" placeholder="确认新密码" autocomplete="new-password" style="width:180px">
+        <button type="submit">保存</button>
+      </form>
+    </div>
+    <div id="users-mgr" class="detail hidden">
+      <div class="detail-head"><h2>用户管理（管理员）</h2></div>
+      <div class="tbl-wrap" style="max-height:280px">
+        <table>
+          <thead><tr><th>账号</th><th>角色</th><th>创建时间</th><th>操作</th></tr></thead>
+          <tbody id="users-tbody"></tbody>
+        </table>
+      </div>
+      <h3 style="margin:14px 0 8px">添加用户</h3>
+      <form id="user-add-form" class="inline-form">
+        <input name="user" type="text" placeholder="账号" style="width:160px">
+        <input name="password" type="text" placeholder="初始密码（4-64 位）" style="width:180px">
+        <select name="role" style="width:120px">
+          <option value="viewer">只读（viewer）</option>
+          <option value="admin">管理员（admin）</option>
+        </select>
+        <button type="submit">添加</button>
+      </form>
+      <h3 style="margin:14px 0 8px">重置用户密码</h3>
+      <form id="user-reset-form" class="inline-form">
+        <select name="user" id="user-reset-sel" style="width:160px"></select>
+        <input name="password" type="text" placeholder="新密码（4-64 位）" style="width:180px">
+        <button type="submit">重置</button>
+      </form>
+    </div>
+  </section>
+</main>
+
+<script src="/services.js"></script>
+<script src="/app.js"></script>
+<div id="toast" class="toast"></div>
+</body>
+</html>

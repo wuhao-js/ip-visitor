@@ -1,0 +1,17 @@
+{
+  "port": 8321,
+  "password": "test123",
+  "secret": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "dbFile": "data-test/test.db",
+  "iface": "any",
+  "retentionDays": 7,
+  "sessionHours": 12,
+  "localIps": ["10.10.10.5", "2001:db8::1"],
+  "webhookUrl": "http://127.0.0.1:8399/hook",
+  "scanPortsThreshold": 15,
+  "scanWindowMin": 10,
+  "newIpHours": 24,
+  "remoteHosts": [
+    { "name": "fake-host", "host": "127.0.0.1", "port": 2222, "user": "root", "password": "wrong-pass" }
+  ]
+}
